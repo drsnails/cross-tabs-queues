@@ -9,6 +9,7 @@ function createBackground(queueItems, options = {}) {
     const injectedTabs = [];
     const openedTabs = [];
     const tabMessages = [];
+    const scriptCalls = [];
     let onTabUpdated;
     const tabs = options.tabs || [];
     const storageListeners = [];
@@ -17,6 +18,18 @@ function createBackground(queueItems, options = {}) {
         crypto: require('node:crypto').webcrypto,
         setTimeout,
         chrome: {
+            scripting: {
+                async executeScript(optionsForScript) {
+                    scriptCalls.push(optionsForScript);
+                    if (options.scriptError) throw new Error(options.scriptError);
+                    const result = vm.runInNewContext(`(${optionsForScript.func.toString()})()`, {
+                        URL,
+                        location: { href: tabs.find(tab => tab.id === optionsForScript.target.tabId)?.url },
+                        document: options.youtubePage || { querySelectorAll: () => [], getElementById: () => null },
+                    });
+                    return [{ result: JSON.parse(JSON.stringify(result)) }];
+                },
+            },
             storage: {
                 onChanged: { addListener(listener) { storageListeners.push(listener); } },
                 local: {
@@ -76,6 +89,7 @@ function createBackground(queueItems, options = {}) {
         injectedTabs,
         openedTabs,
         tabMessages,
+        scriptCalls,
         updateTab(tabId, changes, tab) { onTabUpdated(tabId, changes, tab); },
     };
 }

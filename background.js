@@ -15,6 +15,7 @@ const MESSAGE_TYPES = {
     NEXT_VIDEO_REQUEST: "NEXT_VIDEO_REQUEST",
     ADD_CURRENT: "ADD_CURRENT",
     QUEUE_ALL_TABS: "QUEUE_ALL_TABS",
+    IMPORT_YOUTUBE_QUEUE: "IMPORT_YOUTUBE_QUEUE",
     EXTRACT_METADATA: "EXTRACT_METADATA",
     GET_POPUP_STATE: "GET_POPUP_STATE",
     GET_PLAYLISTS: "GET_PLAYLISTS",
@@ -94,15 +95,20 @@ async function saveQueue(queueItems) {
     await publishQueueToYouTubeTabs();
 }
 
-function isYouTubeWatchPage(urlString) {
+function isYouTubePage(urlString) {
     try {
         const url = new URL(urlString);
         return ["http:", "https:"].includes(url.protocol)
-            && (url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com"))
-            && url.pathname === "/watch" && Boolean(url.searchParams.get("v"));
+            && (url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com"));
     } catch {
         return false;
     }
+}
+
+function isYouTubeWatchPage(urlString) {
+    if (!isYouTubePage(urlString)) return false;
+    const url = new URL(urlString);
+    return url.pathname === "/watch" && Boolean(url.searchParams.get("v"));
 }
 
 async function refreshYouTubeTab(tabId) {
@@ -235,6 +241,108 @@ async function queueAllOpenTabs() {
     return result;
 }
 
+// Runs in YouTube's MAIN world so Polymer data and the player's full queue are
+// available, including items outside the rendered/expanded portion of the list.
+// Keep this function self-contained: executeScript serializes it into the tab.
+function extractYouTubeQueue() {
+    const isQueueId = (id) => typeof id === "string" && /^(?:TQ|TLPQ)/.test(id);
+    const validVideoId = (id) => typeof id === "string" && /^[\w-]{11}$/.test(id);
+    const readText = (text) => typeof text === "string" ? text
+        : text?.simpleText || text?.runs?.map((run) => run.text || "").join("") || "";
+    const panels = [...document.querySelectorAll("ytd-playlist-panel-renderer")]
+        .filter((panel) => !panel.closest("[hidden]"));
+    let playerQueueId;
+    let playerIds = [];
+    const player = document.getElementById("movie_player");
+    try {
+        playerQueueId = player?.getPlaylistId?.();
+        if (isQueueId(playerQueueId)) playerIds = player.getPlaylist?.() || [];
+    } catch {
+        // The player may still be loading; the queue panel can be read on its own.
+    }
+    const panel = panels.find((candidate) => {
+        let id = candidate.data?.playlistId;
+        if (!id) {
+            const link = candidate.querySelector('a[href*="list="]');
+            try { id = new URL(link?.getAttribute("href"), location.href).searchParams.get("list"); } catch {}
+        }
+        return isQueueId(id) && (!playerQueueId || id === playerQueueId);
+    });
+    if (!panel && !isQueueId(playerQueueId)) return null;
+
+    let entries = panel?.data?.contents?.map((entry) => entry.playlistPanelVideoRenderer
+        || entry.playlistPanelVideoWrapperRenderer?.primaryRenderer?.playlistPanelVideoRenderer).filter(Boolean) || [];
+    if (!entries.length && panel) {
+        entries = [...panel.querySelectorAll("ytd-playlist-panel-video-renderer")].map((row) => {
+            if (row.data?.videoId) return row.data;
+            const link = row.querySelector('a[href*="/watch?"]');
+            let videoId;
+            try { videoId = new URL(link?.getAttribute("href"), location.href).searchParams.get("v"); } catch {}
+            return { videoId, title: row.querySelector("#video-title")?.textContent.trim(),
+                shortBylineText: row.querySelector("#byline")?.textContent.trim() };
+        });
+    }
+    const metadata = new Map(entries.map((entry) => [entry.videoId, entry]));
+    // The panel supplies titles; the player can supply IDs not yet rendered.
+    const ids = Array.isArray(playerIds) && playerIds.length > entries.length
+        ? playerIds : entries.map((entry) => entry.videoId);
+    let skipped = 0;
+    const items = [];
+    for (const id of ids) {
+        const entry = metadata.get(id);
+        if (!validVideoId(id) || entry?.isPlayable === false) {
+            skipped++;
+            continue;
+        }
+        items.push({
+            url: `https://www.youtube.com/watch?v=${id}`,
+            title: readText(entry?.title) || `YouTube video (${id})`,
+            channel: readText(entry?.shortBylineText || entry?.longBylineText) || "YouTube",
+        });
+    }
+    return { items, skipped };
+}
+
+async function importYouTubeQueue() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!isYouTubePage(tab?.url)) throw new Error("Open a YouTube tab to import its built-in queue");
+    let extracted;
+    try {
+        const [result] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id }, world: "MAIN", func: extractYouTubeQueue,
+        });
+        extracted = result?.result;
+    } catch {
+        throw new Error("Unable to read this tab's YouTube queue. Reload the tab and try again");
+    }
+    if (!extracted || (!extracted.items?.length && !extracted.skipped)) {
+        throw new Error("No built-in YouTube queue found in this tab. Add videos to YouTube's queue first");
+    }
+    const items = [];
+    let skipped = Number.isInteger(extracted.skipped) && extracted.skipped > 0 ? extracted.skipped : 0;
+    for (const metadata of extracted.items || []) {
+        try { items.push(normalizeQueueItem(metadata)); } catch { skipped++; }
+    }
+    // Append the snapshot in one serialized write, so other tabs cannot interleave
+    // changes with the imported videos or trigger a broadcast for every item.
+    return serializeQueueMutation(async () => {
+        const queue = await getQueue();
+        const ids = new Set(queue.map((item) => item.id));
+        const result = { added: 0, duplicates: 0, skipped };
+        for (const item of items) {
+            if (ids.has(item.id)) {
+                result.duplicates++;
+                continue;
+            }
+            ids.add(item.id);
+            queue.push({ ...item, addedAt: Date.now() });
+            result.added++;
+        }
+        if (result.added) await saveQueue(queue);
+        return result;
+    });
+}
+
 async function playVideoItem(itemId, tabId, playlistId) {
     await pendingQueueMutation;
     const items = playlistId
@@ -364,6 +472,7 @@ async function getPopupState() {
         activeTabId: activeTab?.id,
         activeItemId,
         canAddCurrent: activeItemId !== null,
+        canImportYouTubeQueue: isYouTubePage(activeTab?.url),
     };
 }
 
@@ -442,6 +551,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return true;
         case MESSAGE_TYPES.QUEUE_ALL_TABS:
             respondWithResult(queueAllOpenTabs);
+            return true;
+        case MESSAGE_TYPES.IMPORT_YOUTUBE_QUEUE:
+            respondWithResult(importYouTubeQueue);
             return true;
         case MESSAGE_TYPES.NEXT_VIDEO_REQUEST:
             respondWithResult(() => getNextQueuedVideo(message.payload?.currentVideoId));

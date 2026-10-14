@@ -123,6 +123,7 @@
         elements.clear.disabled = busy || !state.queue.length;
         elements["add-current"].disabled = busy || !state.canAddCurrent;
         elements["add-all"].disabled = busy;
+        elements["import-youtube-queue"].disabled = busy || !state.canImportYouTubeQueue;
         elements["save-form"].querySelector("button").disabled = busy;
         elements["playlist-list"].replaceChildren();
         if (!state.playlists.length) {
@@ -158,6 +159,8 @@
         (added) => added ? "Current tab added" : "This tab is already in your queue"));
     elements["add-all"].addEventListener("click", () => performAction(() => request("QUEUE_ALL_TABS"),
         ({ added, duplicates, skipped }) => `${added} added · ${duplicates} already queued · ${skipped} unavailable or non-YouTube tabs skipped`));
+    elements["import-youtube-queue"].addEventListener("click", () => performAction(() => request("IMPORT_YOUTUBE_QUEUE"),
+        ({ added, duplicates, skipped }) => `${added} added from YouTube queue · ${duplicates} already queued · ${skipped} unavailable videos skipped`));
     elements.clear.addEventListener("click", () => {
         if (confirm("Clear the current queue? Saved playlists will remain.")) performAction(() => request("CLEAR_QUEUE"), "Queue cleared");
     });

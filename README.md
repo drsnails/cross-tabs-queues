@@ -15,6 +15,13 @@ Use **Current video** to add the active YouTube video, or **All YouTube tabs** t
 collect open YouTube videos. Duplicate items are ignored; other sites and browser
 pages are skipped. YouTube watch, Shorts, and youtu.be links are supported.
 
+Use **YouTube queue** to append all videos from the built-in YouTube queue in
+your current tab, including a queue in the miniplayer. Videos are added in queue
+order, duplicates are ignored, and the popup reports how many videos were added
+or skipped. This copies the queue without changing YouTube's queue or playback.
+If no built-in queue is available, the popup shows a message; saved YouTube
+playlists and recommendations are not imported.
+
 Click a video title in either the queue or a saved playlist to play it in the active tab. Use the arrows to
 reorder items or navigate between queued videos, and × to remove an item.
 

@@ -126,3 +126,42 @@ test('saved playlist titles open videos even when the active queue is empty', as
     assert.equal(background.playlists[0].items.length, 1);
     assert.equal(ui.status.dataset.error, 'false');
 });
+
+test('popup imports the current tab YouTube queue and reports added and duplicate counts', async () => {
+    const id = 'aaaaaaaaaaa';
+    const background = createBackground([], {
+        tabs: [{ id: 7, url: 'https://www.youtube.com/' }],
+        youtubePage: {
+            querySelectorAll: () => [],
+            getElementById: () => ({ getPlaylistId: () => 'TQlocal', getPlaylist: () => [id] }),
+        },
+    });
+    const ui = createPopup(background);
+    await flush();
+    assert.equal(ui['import-youtube-queue'].disabled, false);
+    assert.equal(ui['add-current'].disabled, true);
+    ui['import-youtube-queue'].click();
+    assert.equal(ui['import-youtube-queue'].disabled, true);
+    await flush();
+    assert.equal(ui['queue-count'].textContent, '1 item');
+    assert.equal(background.queue[0].id, id);
+    assert.equal(ui.status.textContent, '1 added from YouTube queue · 0 already queued · 0 unavailable videos skipped');
+    assert.equal(ui['import-youtube-queue'].disabled, false);
+    ui['import-youtube-queue'].click();
+    await flush();
+    assert.match(ui.status.textContent, /0 added from YouTube queue · 1 already queued/);
+});
+
+test('popup disables queue import outside YouTube and shows an error for missing native queues', async () => {
+    const otherSite = createPopup(createBackground([], { tabs: [{ id: 1, url: 'https://example.com' }] }));
+    await flush();
+    assert.equal(otherSite['import-youtube-queue'].disabled, true);
+    const ui = createPopup(createBackground([], { tabs: [{ id: 7, url: 'https://www.youtube.com/' }] }));
+    await flush();
+    ui['import-youtube-queue'].click();
+    await flush();
+    assert.equal(ui.status.dataset.error, 'true');
+    assert.match(ui.status.textContent, /No built-in YouTube queue found/);
+    assert.equal(ui['import-youtube-queue'].disabled, false);
+    assert.equal(ui['queue-count'].textContent, '0 items');
+});
