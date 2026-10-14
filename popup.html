@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>YouTube Custom Queue</title>
+    <link rel="stylesheet" href="styles/popup.css">
+    <script src="popup.js" defer></script>
+</head>
+<body>
+    <header><div><p class="eyebrow">YOUTUBE QUEUE</p><h1>Your queue</h1></div><span id="queue-count" class="badge">0 items</span></header>
+    <nav aria-label="Views">
+        <button id="queue-view" class="selected" aria-pressed="true">Queue</button>
+        <button id="playlists-view" aria-pressed="false">Saved playlists</button>
+    </nav>
+    <p id="status" role="status" aria-live="polite"></p>
+    <section id="queue-panel" aria-label="Current queue">
+        <div class="toolbar"><button id="add-current" class="primary">＋ Current video</button><button id="add-all">＋ All YouTube tabs</button></div>
+        <div class="toolbar compact"><button id="previous">← Previous</button><button id="next">Next →</button><button id="clear" class="danger">Clear queue</button></div>
+        <p class="hint">Click a title to play in your current tab. Your queue stays visible on YouTube video pages.</p>
+        <ol id="queue-items" class="items"></ol>
+        <form id="save-form" class="save-form"><label for="playlist-name">Save queue as a playlist</label><div class="toolbar"><input id="playlist-name" placeholder="Playlist name" maxlength="100" required><button class="primary" type="submit">Save</button></div></form>
+    </section>
+    <section id="playlists-panel" aria-label="Saved playlists" hidden>
+        <div id="playlist-list"></div>
+        <div id="playlist-detail" hidden>
+            <form id="rename-form"><label for="rename-name">Playlist name</label><div class="toolbar"><input id="rename-name" maxlength="100" required><button type="submit">Rename</button></div></form>
+            <div class="toolbar"><button id="load-playlist" class="primary">Load playlist</button><button id="add-current-to-playlist" title="Add the current YouTube video directly to this saved playlist">＋ Current video</button></div>
+            <div class="toolbar"><button id="overwrite-playlist">Update from queue</button><button id="delete-playlist" class="danger">Delete playlist</button></div>
+            <p class="hint">Reorder or remove saved items below. Playlists keep their own copy of the queue.</p>
+            <ol id="playlist-items" class="items"></ol>
+        </div>
+    </section>
+</body>
+</html>

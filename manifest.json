@@ -1,0 +1,46 @@
+{
+    "manifest_version": 3,
+    "name": "YouTube Custom Queue",
+    "version": "1.0.0",
+    "description": "Manage your YouTube queue and saved playlists from the video page or extension popup.",
+    "permissions": [
+        "storage",
+        "contextMenus",
+        "scripting"
+    ],
+    "host_permissions": [
+        "*://*.youtube.com/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "*://*.youtube.com/*"
+            ],
+            "js": [
+                "services/video-previews.js",
+                "main.js"
+            ],
+            "css": [
+                "styles/content.css"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "icons/queue.svg"
+            ],
+            "matches": [
+                "*://*.youtube.com/*"
+            ]
+        }
+    ],
+    "action": {
+        "default_title": "Queue and playlists",
+        "default_popup": "popup.html"
+    }
+}
