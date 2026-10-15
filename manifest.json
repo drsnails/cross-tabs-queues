@@ -21,6 +21,7 @@
             ],
             "js": [
                 "services/diagnostics.js",
+                "services/video-metadata.js",
                 "services/video-previews.js",
                 "main.js"
             ],

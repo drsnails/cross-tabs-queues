@@ -64,6 +64,7 @@ function createBackground(queueItems, options = {}) {
                     tabMessages.push({ tabId, ...message });
                     if (message.type === 'PING') return { pong: true };
                     if (message.type === 'QUEUE_UPDATED') return { success: true };
+                    if (message.type === 'EXTRACT_METADATA' && options.tabMetadata) return structuredClone(options.tabMetadata);
                     throw new Error('Metadata not ready');
                 },
                 async update(tabId, values) { openedTabs.push({ tabId, ...values }); },

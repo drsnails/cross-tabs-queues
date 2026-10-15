@@ -25,6 +25,27 @@ playlists and recommendations are not imported.
 Click a video title in either the queue or a saved playlist to play it in the active tab. Use the arrows to
 reorder items or navigate between queued videos, and × to remove an item.
 
+Use the sort controls in the popup or on-page queue to sort by **Views**, **Upload
+date**, or **Video length**. Click the arrow button to toggle **↓** descending or
+**↑** ascending, then choose **Sort**. Upload date means when the
+video was published on YouTube. Sorting saves the shared queue's playback order
+in all tabs; the currently playing video continues. Equal values keep their
+existing order, and unavailable values go last in both directions. New additions
+append normally; choose **Sort** again to include them in the sorted order.
+
+Views, upload date, and duration are captured when adding from a supported video
+card or the video page, including **Current video** and **All YouTube tabs**.
+Video pages prefer exact counts and dates in YouTube's tooltip or matching page
+tags; cards often provide rounded views and estimated upload dates. View counts
+display compactly (for example, **947K** or **5.4M**) while sorting uses the full
+stored number when available. Upload dates
+appear as compact relative times such as **1d ago**, **2w ago**, or **1mo ago**.
+Metadata is a snapshot from addition time, not a
+live view count. Missing fields, live video lengths, and metadata belonging to a
+playlist rather than its first video remain unavailable. Older queue entries are
+not backfilled automatically. Saving and loading playlists retains captured
+metadata.
+
 On YouTube watch pages, the extension displays the same shared queue above
 YouTube's sidebar panels. It restores the queue if YouTube creates or replaces the
 sidebar after navigation. Queue changes notify open YouTube video tabs, including
@@ -36,8 +57,8 @@ UI elements are missing. A 15-second fallback runs only on visible YouTube watch
 pages with an active queue. Background tabs, other YouTube pages, and empty queues
 have no maintenance timer. Returning to a tab restores missing controls immediately.
 
-Use **Minimize** in the inserted queue header
-to hide the video list while keeping the header and queue intact; **Expand** shows it again.
+Use **−** in the inserted queue header
+to hide the video list while keeping the header and queue intact; **+** shows it again.
 
 ## Preview buttons
 
@@ -83,9 +104,12 @@ fails. Video-link surroundings and watch metadata/native queue regions are
 captured separately so they remain available if the full page reaches its size
 limit. Capture limits and truncation are included in the file.
 
-The markup retains rendered views/date/duration text and relevant page meta tags
-for future debugging. This feature does not parse or save new video metadata in
-queue items, and does not add sorting or filtering.
+Metadata diagnostics include the reader's selector version, per-field source and
+raw text, missing/unrecognized values, and the captured values in queue samples.
+The report flags video links outside known card layouts and captures additional
+markup around them. These are clues to YouTube changes, not proof that every
+unrecognized link is a broken card. Full page capture still runs if the metadata
+reader fails. No filtering controls are included yet.
 
 Reports are downloaded locally and never uploaded automatically. Review before
 sharing: rendered video titles, links, page text, and queue samples can reveal

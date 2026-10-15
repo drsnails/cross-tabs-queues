@@ -3,62 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-// Parsed DOM trees preserve the exact structure and metadata of the supplied snippets.
-class Element {
-    constructor(node = { tag: 'button', attributes: {}, children: [] }) {
-        this.tag = node.tag;
-        this.attributes = { ...node.attributes };
-        this.className = this.attributes.class || '';
-        this.children = node.children.map(child => typeof child === 'string' ? child : new Element(child));
-        this.children.forEach(child => { if (typeof child !== 'string') child.parent = this; });
-        this.dataset = {};
-        this.style = {};
-        this.rect = { left: 100, top: 200, right: 400, bottom: 400, width: 300, height: 200 };
-        this.listeners = {};
-        this.classList = { add: value => { if (!this.className.split(' ').includes(value)) this.className += ` ${value}`; } };
-    }
-    get isConnected() { return this.tag === 'fixture' || Boolean(this.parent?.isConnected); }
-    getBoundingClientRect() { return this.rect; }
-    remove() {
-        if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this);
-        this.parent = null;
-    }
-    get textContent() { return this.children.map(child => typeof child === 'string' ? child : child.textContent).join(''); }
-    set textContent(value) { this.children = [value]; }
-    getAttribute(name) { return name === 'class' ? this.className : this.attributes[name] ?? null; }
-    setAttribute(name, value) { this.attributes[name] = value; }
-    addEventListener(type, handler) { this.listeners[type] = handler; }
-    appendChild(child) { child.parent = this; this.children.push(child); }
-    contains(child) { return child === this || this.children.some(node => typeof node !== 'string' && node.contains(child)); }
-    matches(selector) {
-        const attribute = selector.match(/\[([^\]]+)\]/)?.[1];
-        if (attribute && this.getAttribute(attribute) === null) return false;
-        const className = selector.match(/\.([\w-]+)/)?.[1];
-        if (className && !this.className.split(/\s+/).includes(className)) return false;
-        const tag = selector.match(/^[\w-]+/)?.[0];
-        return !tag || tag === this.tag;
-    }
-    closest(selector) { return this.matches(selector) ? this : this.parent?.closest(selector) || null; }
-    querySelectorAll(selector) {
-        const parts = selector.split(' ');
-        const result = [];
-        const visit = node => {
-            if (node.matches(parts.at(-1))) {
-                let ancestor = node.parent;
-                let index = parts.length - 2;
-                while (ancestor && index >= 0) {
-                    if (ancestor.matches(parts[index])) index--;
-                    ancestor = ancestor.parent;
-                }
-                if (index < 0) result.push(node);
-            }
-            node.children.forEach(child => { if (typeof child !== 'string') visit(child); });
-        };
-        this.children.forEach(child => { if (typeof child !== 'string') visit(child); });
-        return result;
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-}
+const { Element } = require('./helpers/dom.cjs');
 
 function setup(fixture, { homePage = false } = {}) {
     const root = new Element(JSON.parse(fs.readFileSync(`${__dirname}/fixtures/${fixture}.json`, 'utf8')));
@@ -85,6 +30,7 @@ function setup(fixture, { homePage = false } = {}) {
         },
     };
     vm.createContext(context);
+    vm.runInContext(fs.readFileSync(`${__dirname}/../services/video-metadata.js`, 'utf8'), context);
     vm.runInContext(fs.readFileSync(`${__dirname}/../services/video-previews.js`, 'utf8'), context);
     const controls = context.createVideoPreviewControls({
         getQueueItems: () => queue,
@@ -125,6 +71,15 @@ for (const [fixture, id, channel] of [
         assert.equal(preview.added[0].id, id);
         assert.equal(preview.added[0].url, `https://www.youtube.com/watch?v=${id}`);
         if (channel) assert.equal(preview.added[0].channel, channel);
+        if (fixture === 'suggested-video') {
+            assert.equal(preview.added[0].views, 5400000);
+            assert.equal(preview.added[0].durationSeconds, 1095);
+        }
+        if (fixture === 'channel-video') {
+            assert.equal(preview.added[0].views, 357000);
+            assert.equal(preview.added[0].durationSeconds, 632);
+            assert.equal(preview.added[0].publishedAtApproximate, true);
+        }
         assert.equal(preview.button.dataset.queued, 'true');
         await preview.click();
         assert.equal(preview.added.length, 1);
@@ -178,6 +133,7 @@ test('home autoplay can replace the thumbnail while the floating queue button re
     assert.equal(button.hidden, false);
     await preview.click();
     assert.equal(preview.added[0].id, 'oax6t6Of2WY');
+    assert.equal(preview.added[0].views, 357000);
     assert.equal(button.dataset.queued, 'true');
 });
 

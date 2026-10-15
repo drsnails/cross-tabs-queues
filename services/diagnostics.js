@@ -112,7 +112,8 @@
             tagCounts[node.localName] = (tagCounts[node.localName] || 0) + 1;
             for (const attribute of node.attributes) attributeNames[attribute.name] = (attributeNames[attribute.name] || 0) + 1;
         }
-        const seen = new Set(), links = [];
+        const seen = new Set(), links = [], unrecognizedLinkContexts = [];
+        let unrecognizedVideoLinks = 0;
         for (const link of document.querySelectorAll('a[href]')) {
             if (link.closest(PRIVATE_REGIONS)) continue;
             const href = safeURL(link.getAttribute('href'));
@@ -122,17 +123,24 @@
                 || !(url.pathname === '/watch' && url.searchParams.has('v') || url.pathname.startsWith('/shorts/'))
                 || seen.has(href)) continue;
             seen.add(href);
-            if (links.length >= 12) continue;
             // Fixed ancestor depth also works when card names and classes change.
             let context = link;
             for (let depth = 0; depth < 3 && context.parentElement; depth++) context = context.parentElement;
-            links.push({ href, context: snapshot(context, { maxNodes: 500, maxCharacters: 24000 }) });
+            if (!link.closest('.ytLockupViewModelHost, ytd-playlist-panel-video-renderer, #yt-queue-sidebar')) {
+                unrecognizedVideoLinks++;
+                if (unrecognizedLinkContexts.length < 6) unrecognizedLinkContexts.push({ href,
+                    context: snapshot(context, { maxNodes: 500, maxCharacters: 24000 }) });
+            }
+            if (links.length < 12) links.push({ href, context: snapshot(context, { maxNodes: 500, maxCharacters: 24000 }) });
         }
         const regions = [...document.querySelectorAll('ytd-watch-metadata, ytd-video-primary-info-renderer, ytd-miniplayer, ytd-playlist-panel-renderer, #yt-queue-sidebar')]
             .slice(0, 8).map(node => ({ tag: node.localName, context: snapshot(node, { maxNodes: 2500, maxCharacters: 100000 }) }));
         const selectors = ['.ytLockupViewModelHost', 'yt-lockup-view-model', 'ytd-rich-grid-media', 'ytd-video-renderer', 'ytd-compact-video-renderer',
             'a.ytLockupViewModelContentImage', 'a.ytLockupMetadataViewModelTitle', 'h3[title]', '.ytContentMetadataViewModelMetadataRow',
-            '#secondary', '#secondary-inner', '#top-level-buttons-computed', 'video.html5-main-video', '#yt-queue-btn-container', '#yt-queue-sidebar', '.yt-queue-preview-add-button'];
+            '#secondary', '#secondary-inner', '#top-level-buttons-computed', 'video.html5-main-video', '#yt-queue-btn-container', '#yt-queue-sidebar', '.yt-queue-preview-add-button',
+            ...Object.values(globalThis.YouTubeMetadata?.selectors || {
+                watchInfo: 'ytd-watch-info-text #info', watchTooltip: 'ytd-watch-info-text #tooltip', duration: '.ytp-time-duration',
+                cardDuration: 'yt-thumbnail-badge-view-model .ytBadgeShapeText' })];
         const selectorMatches = Object.fromEntries(selectors.map(selector => [selector, document.querySelectorAll(selector).length]));
         const metadata = [...document.querySelectorAll('meta[itemprop], meta[property="og:title"], meta[property="og:type"]')]
             .filter(node => ['name', 'uploadDate', 'datePublished', 'duration', 'interactionCount'].includes(node.getAttribute('itemprop')) || node.hasAttribute('property'))
@@ -140,12 +148,23 @@
         let extensionState;
         try { extensionState = scrub(describeState ? describeState() : { error: 'Content script state is unavailable; independent capture succeeded.' }); }
         catch (error) { extensionState = { error: scrub(error.message) }; }
+        let metadataDetection;
+        try { metadataDetection = globalThis.YouTubeMetadata ? scrub(YouTubeMetadata.describePage()) : { error: 'Metadata reader is unavailable.' }; }
+        catch (error) { metadataDetection = { error: scrub(error.message) }; }
+        const structureWarnings = [];
+        if (unrecognizedVideoLinks) structureWarnings.push({ type: 'unrecognized-video-link-context', count: unrecognizedVideoLinks,
+            note: 'These links are outside known card/queue layouts. Inspect the captured markup for new YouTube structures.' });
+        const missingFields = metadataDetection.missingInCardSamples || {};
+        if (Object.values(missingFields).some(count => count > 0)) structureWarnings.push({ type: 'missing-card-metadata', fields: missingFields });
+        const watchFields = metadataDetection.watch?.metadataEvidence?.fields || {};
+        if (Object.values(watchFields).some(field => ['missing', 'unrecognized'].includes(field.status))) structureWarnings.push({ type: 'missing-watch-metadata', fields: watchFields });
         return {
             capturedAt: new Date().toISOString(),
             page: { url: safeURL(location.href), language: document.documentElement.lang, readyState: document.readyState,
                 hidden: document.hidden, viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, scrollY: globalThis.scrollY },
-            selectorMatches, extensionState, metadata, events: events.slice(),
-            independentCapture: { tagCounts, attributeNames, countsTruncated: inspectedNodes > 50000, uniqueVideoLinks: seen.size, links, regions, dom },
+            selectorMatches, extensionState, metadata, metadataDetection, structureWarnings, events: events.slice(),
+            independentCapture: { tagCounts, attributeNames, countsTruncated: inspectedNodes > 50000, uniqueVideoLinks: seen.size, links,
+                unrecognizedVideoLinks, unrecognizedLinkContexts, regions, dom },
         };
     }
 

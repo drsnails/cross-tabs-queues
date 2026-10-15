@@ -43,8 +43,8 @@ function diagnosticPage() {
     };
 }
 
-function collector(document = diagnosticPage()) {
-    const context = { URL, location: { href: 'https://www.youtube.com/watch?v=aaaaaaaaaaa&token=private-query#secret' }, document };
+function collector(document = diagnosticPage(), metadataReader) {
+    const context = { URL, location: { href: 'https://www.youtube.com/watch?v=aaaaaaaaaaa&token=private-query#secret' }, document, YouTubeMetadata: metadataReader };
     vm.runInNewContext(fs.readFileSync(`${__dirname}/../services/diagnostics.js`, 'utf8'), context);
     return context.QueueDiagnostics;
 }
@@ -94,12 +94,27 @@ test('independent evidence survives absent and throwing adapters and unknown car
     assert.equal(report.page.url, 'https://www.youtube.com/watch?v=aaaaaaaaaaa');
     assert.equal(report.selectorMatches['.ytLockupViewModelHost'], 0);
     assert.equal(report.independentCapture.uniqueVideoLinks, 1);
+    assert.equal(report.independentCapture.unrecognizedVideoLinks, 1);
+    assert.ok(report.structureWarnings.some(warning => warning.type === 'unrecognized-video-link-context'));
+    assert.match(report.independentCapture.unrecognizedLinkContexts[0].context.html, /brand-new-youtube-card/);
     assert.match(report.independentCapture.links[0].context.html, /brand-new-youtube-card/);
     assert.match(report.independentCapture.regions[0].context.html, /1,234 views/);
     assert.doesNotMatch(JSON.stringify(report), /private-query/);
     diagnostics.setStateProvider(() => { throw new Error('obsolete selector'); });
     assert.equal(diagnostics.capture().extensionState.error, 'obsolete selector');
     assert.match(diagnostics.capture().independentCapture.dom.html, /brand-new-youtube-card/);
+});
+
+test('metadata warnings identify missing fields and reader failures preserve independent snapshots', () => {
+    const missing = collector(diagnosticPage(), { selectors: {}, describePage: () => ({ selectorVersion: 'new-reader',
+        missingInCardSamples: { views: 2, publishedAt: 1, durationSeconds: 0 },
+        watch: { metadataEvidence: { fields: { durationSeconds: { status: 'missing' } } } } }) }).capture();
+    assert.equal(missing.metadataDetection.selectorVersion, 'new-reader');
+    assert.ok(missing.structureWarnings.some(warning => warning.type === 'missing-card-metadata' && warning.fields.views === 2));
+    assert.ok(missing.structureWarnings.some(warning => warning.type === 'missing-watch-metadata'));
+    const broken = collector(diagnosticPage(), { selectors: {}, describePage() { throw new Error('New YouTube structure'); } }).capture();
+    assert.equal(broken.metadataDetection.error, 'New YouTube structure');
+    assert.match(broken.independentCapture.dom.html, /brand-new-youtube-card/);
 });
 
 test('events are bounded and redact error URLs and credential fields', () => {

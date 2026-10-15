@@ -14,6 +14,7 @@
         CLEAR_QUEUE: "CLEAR_QUEUE",
         PLAY_VIDEO: "PLAY_VIDEO",
         REORDER_QUEUE: "REORDER_QUEUE",
+        SORT_QUEUE: "SORT_QUEUE",
         PLAY_QUEUE_ITEM: "PLAY_QUEUE_ITEM",
         NEXT_VIDEO_REQUEST: "NEXT_VIDEO_REQUEST",
         ADD_CURRENT: "ADD_CURRENT",
@@ -44,6 +45,8 @@
     let queueMaintenanceDelayMs = null;
     let queueRecoveryAttempts = 0;
     const diagnostics = globalThis.QueueDiagnostics;
+    let queueSortField = "views";
+    let queueSortDirection = "desc";
 
     const previewControls = createVideoPreviewControls({
         getQueueItems: () => queueItems,
@@ -53,6 +56,7 @@
     async function addPreviewVideoToQueue(videoMetadata) {
         try {
             diagnostics?.record("preview-add", { videoId: videoMetadata.id });
+            recordMetadataCapture(videoMetadata);
             const response = await chrome.runtime.sendMessage({
                 type: MESSAGE_TYPES.ADD_TO_QUEUE,
                 payload: videoMetadata,
@@ -100,7 +104,7 @@
 
     function getCurrentVideoMetadata() {
         const videoId = getCurrentVideoId();
-        if (!videoId) return null;
+        if (!videoId || !YouTubeMetadata.watchIdentity(videoId)) return null;
 
         const titleElement = document.querySelector("h1.ytd-watch-metadata yt-formatted-string")
             || document.querySelector("h1.title yt-formatted-string")
@@ -119,7 +123,14 @@
             channel,
             thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
             url: window.location.href,
+            ...YouTubeMetadata.readWatch(videoId),
         };
+    }
+
+    function recordMetadataCapture(metadata) {
+        diagnostics?.record("metadata-capture", { videoId: metadata.id, views: metadata.views,
+            publishedAt: metadata.publishedAt, durationSeconds: metadata.durationSeconds,
+            publishedAtApproximate: metadata.publishedAtApproximate, evidence: metadata.metadataEvidence });
     }
 
     function showToast(message) {
@@ -170,6 +181,7 @@
                 showToast("Could not get video info");
                 return;
             }
+            recordMetadataCapture(videoMetadata);
             chrome.runtime.sendMessage({
                 type: MESSAGE_TYPES.ADD_TO_QUEUE,
                 payload: videoMetadata,
@@ -311,9 +323,14 @@
             <div class="yt-queue-header">
                 <h3>Custom Queue</h3>
                 <div class="yt-queue-header-actions">
-                    <button id="yt-queue-toggle" aria-controls="yt-queue-list" aria-expanded="true">Minimize</button>
+                    <button id="yt-queue-toggle" type="button" aria-label="Minimize queue" aria-controls="yt-queue-list" aria-expanded="true">−</button>
                     <button id="yt-queue-clear">Clear</button>
                 </div>
+            </div>
+            <div id="yt-queue-sort-controls" class="yt-queue-sort-controls">
+                <select id="yt-queue-sort-field" aria-label="Sort queue by"><option value="views">Views</option><option value="publishedAt">Upload date</option><option value="durationSeconds">Video length</option></select>
+                <button id="yt-queue-sort-direction" type="button" aria-label="Ascending sort order" aria-pressed="false" title="Descending order; switch to ascending">↓</button>
+                <button id="yt-queue-sort" type="button" title="Change queue playback order; missing values go last">Sort</button>
             </div>
             <div id="yt-queue-list" class="yt-queue-list"></div>
         `;
@@ -329,6 +346,38 @@
         document.getElementById("yt-queue-clear").addEventListener("click", () => {
             chrome.runtime.sendMessage({ type: MESSAGE_TYPES.CLEAR_QUEUE }, consumeRuntimeError);
         });
+        const sortField = document.getElementById("yt-queue-sort-field");
+        const sortDirection = document.getElementById("yt-queue-sort-direction");
+        const sortButton = document.getElementById("yt-queue-sort");
+        sortField.value = queueSortField;
+        sortField.addEventListener("change", () => { queueSortField = sortField.value; });
+        const updateSortDirection = () => {
+            const ascending = queueSortDirection === "asc";
+            sortDirection.textContent = ascending ? "↑" : "↓";
+            sortDirection.setAttribute("aria-pressed", String(ascending));
+            sortDirection.title = ascending ? "Ascending order; switch to descending" : "Descending order; switch to ascending";
+        };
+        updateSortDirection();
+        sortDirection.addEventListener("click", () => {
+            queueSortDirection = queueSortDirection === "desc" ? "asc" : "desc";
+            updateSortDirection();
+        });
+        sortButton.addEventListener("click", () => {
+            sortButton.disabled = true;
+            chrome.runtime.sendMessage({ type: MESSAGE_TYPES.SORT_QUEUE,
+                payload: { field: sortField.value, direction: queueSortDirection } }, response => {
+                sortButton.disabled = false;
+                const error = chrome.runtime.lastError?.message || (!response?.success ? response?.error || "Could not sort queue" : null);
+                if (error) {
+                    diagnostics?.record("sort-error", { error });
+                    showToast(error);
+                } else {
+                    const missing = response.data?.missing || 0;
+                    showToast(`Queue sorted${missing ? ` · ${missing} with missing values placed last` : ""}`);
+                    loadQueue();
+                }
+            });
+        });
     }
 
     function updateQueueMinimizedState() {
@@ -336,10 +385,13 @@
         const toggleButton = document.getElementById("yt-queue-toggle");
         if (!queueListElement || !toggleButton) return;
         queueListElement.hidden = isQueueMinimized;
+        const sortControls = document.getElementById("yt-queue-sort-controls");
+        if (sortControls) sortControls.hidden = isQueueMinimized;
         toggleButton.setAttribute("aria-expanded", String(!isQueueMinimized));
-        const label = isQueueMinimized ? "Expand" : "Minimize";
+        const label = isQueueMinimized ? "+" : "−";
         if (toggleButton.textContent !== label) toggleButton.textContent = label;
         toggleButton.title = isQueueMinimized ? "Show queue videos" : "Minimize queue";
+        toggleButton.setAttribute("aria-label", isQueueMinimized ? "Expand queue" : "Minimize queue");
     }
 
     // Reading lastError prevents unchecked errors for messages without a UI response.
@@ -393,6 +445,7 @@
                 <div class="yt-queue-info">
                     <div class="yt-queue-title">${escapeHtml(video.title)}</div>
                     <div class="yt-queue-channel">${escapeHtml(video.channel)}</div>
+                    <div class="yt-queue-metadata">${escapeHtml(YouTubeMetadata.summarize(video))}</div>
                 </div>
                 <button class="yt-queue-remove" data-id="${escapeHtml(video.id)}" title="Remove from queue">\xD7</button>
             `;
@@ -641,7 +694,9 @@
             return true;
         }
         if (message.type === MESSAGE_TYPES.EXTRACT_METADATA) {
-            sendResponse(getCurrentVideoMetadata());
+            const metadata = getCurrentVideoMetadata();
+            if (metadata) recordMetadataCapture(metadata);
+            sendResponse(metadata);
             return true;
         }
         if (message.type === MESSAGE_TYPES.QUEUE_UPDATED) {

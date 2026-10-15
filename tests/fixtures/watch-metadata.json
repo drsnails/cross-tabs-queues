@@ -1,0 +1,295 @@
+{
+  "tag": "fixture",
+  "attributes": {},
+  "children": [
+    {
+      "tag": "ytd-watch-flexy",
+      "attributes": {
+        "video-id": "aaaaaaaaaaa"
+      },
+      "children": [
+        {
+          "tag": "ytd-watch-metadata",
+          "attributes": {},
+          "children": [
+            {
+              "tag": "h1",
+              "attributes": {
+                "class": "style-scope ytd-watch-metadata"
+              },
+              "children": [
+                {
+                  "tag": "yt-formatted-string",
+                  "attributes": {
+                    "class": "style-scope ytd-watch-metadata",
+                    "title": "1v1ing Joe Bart but every time I WIN he gets a BUFF"
+                  },
+                  "children": [
+                    "1v1ing Joe Bart but every time I WIN he gets a BUFF"
+                  ]
+                }
+              ]
+            },
+            {
+              "tag": "ytd-watch-info-text",
+              "attributes": {
+                "id": "ytd-watch-info-text",
+                "class": "style-scope ytd-watch-metadata"
+              },
+              "children": [
+                {
+                  "tag": "div",
+                  "attributes": {
+                    "id": "info-container",
+                    "class": "style-scope ytd-watch-info-text"
+                  },
+                  "children": [
+                    {
+                      "tag": "ps-dom-if",
+                      "attributes": {
+                        "class": "style-scope ytd-watch-info-text"
+                      },
+                      "children": []
+                    },
+                    {
+                      "tag": "div",
+                      "attributes": {
+                        "id": "view-count",
+                        "class": "style-scope ytd-watch-info-text",
+                        "aria-label": ""
+                      },
+                      "children": [
+                        {
+                          "tag": "ps-dom-if",
+                          "attributes": {
+                            "class": "style-scope ytd-watch-info-text"
+                          },
+                          "children": []
+                        },
+                        {
+                          "tag": "yt-formatted-string",
+                          "attributes": {
+                            "class": "style-scope ytd-watch-info-text"
+                          },
+                          "children": [
+                            {
+                              "tag": "yt-attributed-string",
+                              "attributes": {
+                                "class": "style-scope yt-formatted-string"
+                              },
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "ps-dom-if",
+                          "attributes": {
+                            "class": "style-scope ytd-watch-info-text"
+                          },
+                          "children": []
+                        },
+                        {
+                          "tag": "yt-animated-rolling-number",
+                          "attributes": {
+                            "class": "animatedRollingNumberHost style-scope ytd-watch-info-text"
+                          },
+                          "children": [
+                            {
+                              "tag": "span",
+                              "attributes": {
+                                "class": "animatedRollingNumberDigits"
+                              },
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "yt-formatted-string",
+                          "attributes": {
+                            "class": "style-scope ytd-watch-info-text"
+                          },
+                          "children": [
+                            {
+                              "tag": "yt-attributed-string",
+                              "attributes": {
+                                "class": "style-scope yt-formatted-string"
+                              },
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "div",
+                      "attributes": {
+                        "id": "date-text",
+                        "class": "style-scope ytd-watch-info-text",
+                        "aria-label": ""
+                      },
+                      "children": [
+                        {
+                          "tag": "ps-dom-if",
+                          "attributes": {
+                            "class": "style-scope ytd-watch-info-text"
+                          },
+                          "children": []
+                        },
+                        {
+                          "tag": "yt-formatted-string",
+                          "attributes": {
+                            "class": "style-scope ytd-watch-info-text"
+                          },
+                          "children": [
+                            {
+                              "tag": "yt-attributed-string",
+                              "attributes": {
+                                "class": "style-scope yt-formatted-string"
+                              },
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "ps-dom-if",
+                          "attributes": {
+                            "class": "style-scope ytd-watch-info-text"
+                          },
+                          "children": []
+                        },
+                        {
+                          "tag": "yt-animated-rolling-number",
+                          "attributes": {
+                            "class": "animatedRollingNumberHost style-scope ytd-watch-info-text"
+                          },
+                          "children": [
+                            {
+                              "tag": "span",
+                              "attributes": {
+                                "class": "animatedRollingNumberDigits"
+                              },
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "yt-formatted-string",
+                          "attributes": {
+                            "class": "style-scope ytd-watch-info-text"
+                          },
+                          "children": [
+                            {
+                              "tag": "yt-attributed-string",
+                              "attributes": {
+                                "class": "style-scope yt-formatted-string"
+                              },
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "yt-formatted-string",
+                      "attributes": {
+                        "id": "info",
+                        "class": "style-scope ytd-watch-info-text"
+                      },
+                      "children": [
+                        {
+                          "tag": "span",
+                          "attributes": {
+                            "class": "style-scope yt-formatted-string"
+                          },
+                          "children": [
+                            "947K views"
+                          ]
+                        },
+                        {
+                          "tag": "span",
+                          "attributes": {
+                            "class": "style-scope yt-formatted-string"
+                          },
+                          "children": []
+                        },
+                        {
+                          "tag": "span",
+                          "attributes": {
+                            "class": "style-scope yt-formatted-string"
+                          },
+                          "children": [
+                            "5 days ago"
+                          ]
+                        },
+                        {
+                          "tag": "span",
+                          "attributes": {
+                            "class": "style-scope yt-formatted-string"
+                          },
+                          "children": []
+                        },
+                        {
+                          "tag": "a",
+                          "attributes": {
+                            "class": "yt-simple-endpoint style-scope yt-formatted-string",
+                            "href": "/hashtag/amustycow"
+                          },
+                          "children": [
+                            "#amustycow"
+                          ]
+                        },
+                        {
+                          "tag": "span",
+                          "attributes": {
+                            "class": "style-scope yt-formatted-string"
+                          },
+                          "children": []
+                        },
+                        {
+                          "tag": "a",
+                          "attributes": {
+                            "class": "yt-simple-endpoint style-scope yt-formatted-string",
+                            "href": "/hashtag/rocketleague"
+                          },
+                          "children": [
+                            "#rocketleague"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tag": "tp-yt-paper-tooltip",
+                  "attributes": {
+                    "class": "style-scope ytd-watch-info-text",
+                    "aria-label": "tooltip"
+                  },
+                  "children": [
+                    {
+                      "tag": "div",
+                      "attributes": {
+                        "id": "tooltip",
+                        "class": "style-scope tp-yt-paper-tooltip hidden"
+                      },
+                      "children": [
+                        "947,263 views • Oct 10, 2026 • #amustycow #rocketleague"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tag": "ps-dom-if",
+                  "attributes": {
+                    "class": "style-scope ytd-watch-info-text"
+                  },
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

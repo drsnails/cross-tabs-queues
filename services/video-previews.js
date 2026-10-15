@@ -41,6 +41,7 @@ function createVideoPreviewControls({ getQueueItems, addVideo }) {
             thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
             url: `https://www.youtube.com/watch?v=${videoId}`,
             isPlaylist,
+            ...YouTubeMetadata.readCard(card, { isPlaylist }),
         };
     }
 
@@ -209,7 +210,7 @@ function createVideoPreviewControls({ getQueueItems, addVideo }) {
     return { refreshButtons,
         describe() {
             const cards = [...document.querySelectorAll(CARD_SELECTOR)];
-            return { selectorVersion: "2026-10-15.1", cardSelector: CARD_SELECTOR, cardCount: cards.length,
+            return { selectorVersion: YouTubeMetadata.selectorVersion, cardSelector: CARD_SELECTOR, cardCount: cards.length,
                 sampleLimit: 30, cards: cards.slice(0, 30).map(card => {
                     try { return { tag: card.localName, metadata: readPreviewMetadata(card),
                         hasThumbnailLink: Boolean(card.querySelector("a.ytLockupViewModelContentImage")),

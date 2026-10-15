@@ -1,4 +1,5 @@
 importScripts("services/diagnostics.js");
+importScripts("services/video-metadata.js");
 
 // Extension messages and persisted storage keys.
 const STORAGE_KEYS = {
@@ -13,6 +14,7 @@ const MESSAGE_TYPES = {
     CLEAR_QUEUE: "CLEAR_QUEUE",
     PLAY_VIDEO: "PLAY_VIDEO",
     REORDER_QUEUE: "REORDER_QUEUE",
+    SORT_QUEUE: "SORT_QUEUE",
     PLAY_QUEUE_ITEM: "PLAY_QUEUE_ITEM",
     NEXT_VIDEO_REQUEST: "NEXT_VIDEO_REQUEST",
     ADD_CURRENT: "ADD_CURRENT",
@@ -72,7 +74,7 @@ async function ensureContentScriptLoaded(tabId) {
             });
             await chrome.scripting.executeScript({
                 target: { tabId },
-                files: ["services/diagnostics.js", "services/video-previews.js", "main.js"],
+                files: ["services/diagnostics.js", "services/video-metadata.js", "services/video-previews.js", "main.js"],
             });
             await new Promise((resolve) => setTimeout(resolve, 100));
             return true;
@@ -166,6 +168,12 @@ function normalizeQueueItem(metadata) {
         channel: String(metadata.channel || url.hostname.replace(/^www\./, "")),
         thumbnail: `https://img.youtube.com/vi/${encodeURIComponent(videoId)}/mqdefault.jpg`,
         source: "youtube",
+        views: YouTubeMetadata.validNumber(metadata.views) && Number.isSafeInteger(metadata.views) ? metadata.views : null,
+        publishedAt: YouTubeMetadata.validNumber(metadata.publishedAt) && metadata.publishedAt <= 8640000000000000 ? metadata.publishedAt : null,
+        publishedAtApproximate: metadata.publishedAtApproximate === true,
+        durationSeconds: YouTubeMetadata.validNumber(metadata.durationSeconds) ? metadata.durationSeconds : null,
+        ...(YouTubeMetadata.validNumber(metadata.addedAt) ? { addedAt: metadata.addedAt } : {}),
+        ...(metadata.metadataEvidence && typeof metadata.metadataEvidence === "object" ? { metadataEvidence: QueueDiagnostics.scrub(metadata.metadataEvidence) } : {}),
     };
 }
 
@@ -221,6 +229,28 @@ function reorderQueue(fromIndex, toIndex) {
     });
 }
 
+function sortQueue(field, direction) {
+    if (!["views", "publishedAt", "durationSeconds"].includes(field) || !["asc", "desc"].includes(direction)) {
+        throw new Error("Choose a valid sort field and direction");
+    }
+    return serializeQueueMutation(async () => {
+        const queue = await getQueue();
+        const multiplier = direction === "asc" ? 1 : -1;
+        let missing = 0;
+        for (const item of queue) if (!YouTubeMetadata.validNumber(item[field])) missing++;
+        queue.sort((left, right) => {
+            const hasLeft = YouTubeMetadata.validNumber(left[field]);
+            const hasRight = YouTubeMetadata.validNumber(right[field]);
+            if (hasLeft !== hasRight) return hasLeft ? -1 : 1;
+            // JS's stable sort preserves the current order for ties and missing data.
+            return hasLeft ? (left[field] - right[field]) * multiplier : 0;
+        });
+        if (queue.length > 1) await saveQueue(queue);
+        recordBackgroundEvent("queue-sorted", { field, direction, count: queue.length, missing });
+        return { count: queue.length, missing };
+    });
+}
+
 // Playback follows playlist order without changing the saved queue.
 async function getNextQueuedVideo(currentVideoId) {
     await pendingQueueMutation;
@@ -239,6 +269,7 @@ async function getTabQueueItem(tab) {
         try {
             const metadata = await sendMessageToYouTubeTab(tab.id, { type: MESSAGE_TYPES.EXTRACT_METADATA });
             if (metadata?.id === fallbackItem.id) return normalizeQueueItem(metadata);
+            recordBackgroundEvent("metadata-fallback", { videoId: fallbackItem.id, reason: "Page metadata was unavailable or belonged to a different video." });
         } catch (error) {
             recordBackgroundEvent("metadata-fallback", { error: error.message, url: QueueDiagnostics.safeURL(tab.url) });
             // A loading or discarded tab still has a usable URL and title.
@@ -507,7 +538,8 @@ async function createDiagnosticReport() {
     const report = {
         schemaVersion: 1,
         capturedAt: new Date().toISOString(),
-        extension: { name: chrome.runtime.getManifest().name, version: chrome.runtime.getManifest().version },
+        extension: { name: chrome.runtime.getManifest().name, version: chrome.runtime.getManifest().version,
+            metadataSelectorVersion: YouTubeMetadata.selectorVersion },
         environment: { userAgent: globalThis.navigator?.userAgent },
         errors: [],
         privacy: {
@@ -524,7 +556,9 @@ async function createDiagnosticReport() {
         const playlists = (await chrome.storage.local.get(STORAGE_KEYS.PLAYLISTS))[STORAGE_KEYS.PLAYLISTS];
         report.state = QueueDiagnostics.scrub({ queueStorage, queueCount: Array.isArray(queue) ? queue.length : 0,
             queueSample: Array.isArray(queue) ? queue.slice(0, 50).map(item => ({ id: item?.id, title: item?.title, source: item?.source,
-                addedAt: item?.addedAt, fieldNames: item && typeof item === "object" ? Object.keys(item) : [] })) : [],
+                addedAt: item?.addedAt, views: item?.views, publishedAt: item?.publishedAt, publishedAtApproximate: item?.publishedAtApproximate,
+                durationSeconds: item?.durationSeconds, metadataEvidence: item?.metadataEvidence,
+                fieldNames: item && typeof item === "object" ? Object.keys(item) : [] })) : [],
             playlistCount: Array.isArray(playlists) ? playlists.length : 0,
             playlistSizes: Array.isArray(playlists) ? playlists.slice(0, 50).map(list => Array.isArray(list?.items) ? list.items.length : null) : [],
             sampleLimit: 50 });
@@ -635,6 +669,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return true;
         case MESSAGE_TYPES.REORDER_QUEUE:
             respondWithResult(() => reorderQueue(message.payload.fromIndex, message.payload.toIndex));
+            return true;
+        case MESSAGE_TYPES.SORT_QUEUE:
+            respondWithResult(() => sortQueue(message.payload?.field, message.payload?.direction));
             return true;
         case MESSAGE_TYPES.ADD_CURRENT:
             respondWithResult(addCurrentTabToQueue);

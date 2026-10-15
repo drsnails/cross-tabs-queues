@@ -6,6 +6,14 @@
     let pendingActions = 0;
     let diagnosticBusy = false;
     let lastError = null;
+    let sortDirection = "desc";
+
+    function updateSortDirection() {
+        const ascending = sortDirection === "asc";
+        elements["sort-direction"].textContent = ascending ? "↑" : "↓";
+        elements["sort-direction"].setAttribute("aria-pressed", String(ascending));
+        elements["sort-direction"].title = ascending ? "Ascending order; switch to descending" : "Descending order; switch to ascending";
+    }
 
     async function request(type, payload) {
         try {
@@ -140,6 +148,10 @@
             source.className = "item-source";
             source.textContent = item.channel || item.source || "YouTube";
             info.append(title, source);
+            const metadata = document.createElement("span");
+            metadata.className = "item-metadata";
+            metadata.textContent = YouTubeMetadata.summarize(item);
+            info.appendChild(metadata);
             const actions = document.createElement("div");
             actions.className = "item-actions";
             function move(offset) {
@@ -171,6 +183,7 @@
         elements["add-current"].disabled = busy || !state.canAddCurrent;
         elements["add-all"].disabled = busy;
         elements["import-youtube-queue"].disabled = busy || !state.canImportYouTubeQueue;
+        for (const name of ["sort-field", "sort-direction", "sort-queue"]) elements[name].disabled = busy || state.queue.length < 2;
         elements["save-form"].querySelector("button").disabled = busy;
         elements["playlist-list"].replaceChildren();
         if (!state.playlists.length) {
@@ -202,6 +215,16 @@
 
     elements["queue-view"].addEventListener("click", () => showView("queue"));
     elements["export-diagnostics"].addEventListener("click", exportDiagnostics);
+    elements["sort-direction"].addEventListener("click", () => {
+        sortDirection = sortDirection === "desc" ? "asc" : "desc";
+        updateSortDirection();
+    });
+    updateSortDirection();
+    elements["sort-form"].addEventListener("submit", event => {
+        event.preventDefault();
+        performAction(() => request("SORT_QUEUE", { field: elements["sort-field"].value, direction: sortDirection }),
+            ({ missing }) => `Queue sorted${missing ? ` · ${missing} with missing values placed last` : ""}`);
+    });
     elements["playlists-view"].addEventListener("click", () => showView("playlists"));
     elements["add-current"].addEventListener("click", () => performAction(() => request("ADD_CURRENT"),
         (added) => added ? "Current tab added" : "This tab is already in your queue"));

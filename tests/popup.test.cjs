@@ -45,6 +45,7 @@ function createPopup(background) {
         confirm: () => true,
     };
     vm.createContext(context);
+    vm.runInContext(fs.readFileSync(`${__dirname}/../services/video-metadata.js`, 'utf8'), context);
     vm.runInContext(fs.readFileSync(`${__dirname}/../services/diagnostics.js`, 'utf8'), context);
     vm.runInContext(fs.readFileSync(`${__dirname}/../popup.js`, 'utf8'), context);
     elements.downloads = downloads;
@@ -214,4 +215,29 @@ test('popup can download a partial report when the background worker is unavaila
     assert.doesNotMatch(JSON.stringify(report), /reader@example.com/);
     assert.match(ui.status.textContent, /Partial debug report downloaded/);
     assert.equal(ui['export-diagnostics'].disabled, false);
+});
+
+test('popup sorting changes shared playback order and reports unavailable values', async () => {
+    const background = createBackground([
+        { id: 'unknown', title: 'Unknown', url: 'https://youtube.com/watch?v=unknown' },
+        { id: 'long', title: 'Long', url: 'https://youtube.com/watch?v=long', durationSeconds: 100 },
+        { id: 'short', title: 'Short', url: 'https://youtube.com/watch?v=short', durationSeconds: 10 },
+    ]);
+    const ui = createPopup(background);
+    await flush();
+    ui['sort-field'].value = 'durationSeconds';
+    assert.equal(ui['sort-direction'].textContent, '↓');
+    ui['sort-direction'].click();
+    assert.equal(ui['sort-direction'].textContent, '↑');
+    assert.equal(ui['sort-direction']['aria-pressed'], 'true');
+    ui['sort-form'].submit();
+    assert.equal(ui['sort-queue'].disabled, true);
+    await flush();
+    assert.deepEqual(background.queue.map(item => item.id), ['short', 'long', 'unknown']);
+    assert.equal(ui['queue-items'].children[0].children[1].children[0].textContent, 'Short');
+    assert.match(ui.status.textContent, /1 with missing values placed last/);
+    assert.equal(ui['sort-queue'].disabled, false);
+    ui['sort-direction'].click();
+    assert.equal(ui['sort-direction'].textContent, '↓');
+    assert.equal(ui['sort-direction']['aria-pressed'], 'false');
 });

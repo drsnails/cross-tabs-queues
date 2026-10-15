@@ -59,6 +59,7 @@ function createYouTubePage({ page = 'watch' } = {}) {
     const events = {};
     const timers = new Map();
     const queueRequests = [];
+    const actionsRequested = [];
     let timerId = 0;
     const location = page === 'watch'
         ? { pathname: '/watch', search: '?v=first', href: 'https://www.youtube.com/watch?v=first' }
@@ -91,7 +92,13 @@ function createYouTubePage({ page = 'watch' } = {}) {
             runtime: {
                 getManifest: () => ({}),
                 getURL: path => `chrome-extension://test/${path}`,
-                sendMessage(message, callback) { if (message.type === 'GET_QUEUE') queueRequests.push(callback); },
+                sendMessage(message, callback) {
+                    if (message.type === 'GET_QUEUE') queueRequests.push(callback);
+                    else if (message.type === 'SORT_QUEUE') {
+                        actionsRequested.push(JSON.parse(JSON.stringify(message)));
+                        callback({ success: true, data: { count: 2, missing: 0 } });
+                    }
+                },
                 onMessage: { addListener(handler) { messageHandler = handler; } },
             },
             storage: { onChanged: { addListener(handler) { storageHandler = handler; } } },
@@ -101,6 +108,7 @@ function createYouTubePage({ page = 'watch' } = {}) {
         clearTimeout(id) { timers.delete(id); },
     };
     vm.createContext(context);
+    vm.runInContext(fs.readFileSync(`${__dirname}/../services/video-metadata.js`, 'utf8'), context);
     vm.runInContext(fs.readFileSync(`${__dirname}/../services/diagnostics.js`, 'utf8'), context);
     vm.runInContext(fs.readFileSync(`${__dirname}/../services/video-previews.js`, 'utf8'), context);
     vm.runInContext(fs.readFileSync(`${__dirname}/../main.js`, 'utf8'), context);
@@ -151,6 +159,7 @@ function createYouTubePage({ page = 'watch' } = {}) {
         get pendingTimers() { return timers.size; },
         get timerDelays() { return [...timers.values()].map(timer => timer.delayMs); },
         get pendingRequests() { return queueRequests.length; },
+        actionsRequested,
     };
 }
 const items = ['first', 'next'].map(id => ({ id, title: id, channel: 'Channel', url: `https://www.youtube.com/watch?v=${id}`, thumbnail: `https://img.youtube.com/vi/${id}/mqdefault.jpg` }));
@@ -205,7 +214,9 @@ test('minimizing retains videos and stays collapsed through queue updates, navig
     page.respond(items);
     page.get('yt-queue-toggle').listeners.click();
     assert.equal(page.get('yt-queue-list').hidden, true);
-    assert.equal(page.get('yt-queue-toggle').textContent, 'Expand');
+    assert.equal(page.get('yt-queue-sort-controls').hidden, true);
+    assert.equal(page.get('yt-queue-toggle').textContent, '+');
+    assert.equal(page.get('yt-queue-toggle')['aria-label'], 'Expand queue');
     assert.equal(page.get('yt-queue-toggle')['aria-expanded'], 'false');
     assert.equal(page.get('yt-queue-list').children.length, 2);
     page.tick();
@@ -217,9 +228,33 @@ test('minimizing retains videos and stays collapsed through queue updates, navig
     assert.equal(page.get('yt-queue-list').hidden, true);
     page.get('yt-queue-toggle').listeners.click();
     assert.equal(page.get('yt-queue-list').hidden, false);
-    assert.equal(page.get('yt-queue-toggle').textContent, 'Minimize');
+    assert.equal(page.get('yt-queue-toggle').textContent, '−');
+    assert.equal(page.get('yt-queue-toggle')['aria-label'], 'Minimize queue');
     assert.equal(page.get('yt-queue-toggle')['aria-expanded'], 'true');
     assert.equal(page.get('yt-queue-list').children.length, 1);
+});
+
+test('sidebar sorting sends the chosen field/direction and retains choices after sidebar recovery', () => {
+    const page = createYouTubePage();
+    page.mountSidebar();
+    page.respond(items);
+    const field = page.get('yt-queue-sort-field');
+    const direction = page.get('yt-queue-sort-direction');
+    field.value = 'publishedAt';
+    field.listeners.change();
+    direction.listeners.click();
+    assert.equal(direction.textContent, '↑');
+    assert.equal(direction['aria-pressed'], 'true');
+    page.get('yt-queue-sort').listeners.click();
+    assert.deepEqual(page.actionsRequested, [{ type: 'SORT_QUEUE', payload: { field: 'publishedAt', direction: 'asc' } }]);
+    page.respond(items);
+    page.get('yt-queue-sidebar').remove();
+    page.tick();
+    assert.equal(page.get('yt-queue-sort-field').value, 'publishedAt');
+    assert.equal(page.get('yt-queue-sort-direction').textContent, '↑');
+    page.get('yt-queue-sort-direction').listeners.click();
+    assert.equal(page.get('yt-queue-sort-direction').textContent, '↓');
+    assert.equal(page.get('yt-queue-sort-direction')['aria-pressed'], 'false');
 });
 
 

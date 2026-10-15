@@ -6,6 +6,7 @@
     <title>YouTube Custom Queue</title>
     <link rel="stylesheet" href="styles/popup.css">
     <script src="services/diagnostics.js" defer></script>
+    <script src="services/video-metadata.js" defer></script>
     <script src="popup.js" defer></script>
 </head>
 <body>
@@ -19,6 +20,12 @@
         <div class="toolbar"><button id="add-current" class="primary">＋ Current video</button><button id="add-all">＋ All YouTube tabs</button></div>
         <div class="toolbar"><button id="import-youtube-queue" title="Add all videos from the built-in YouTube queue in your current tab">＋ YouTube queue</button></div>
         <div class="toolbar compact"><button id="previous">← Previous</button><button id="next">Next →</button><button id="clear" class="danger">Clear queue</button></div>
+        <form id="sort-form" class="toolbar sort-toolbar" aria-label="Sort queue">
+            <select id="sort-field" aria-label="Sort by"><option value="views">Views</option><option value="publishedAt">Upload date</option><option value="durationSeconds">Video length</option></select>
+            <button id="sort-direction" type="button" aria-label="Ascending sort order" aria-pressed="false" title="Descending order; switch to ascending">↓</button>
+            <button id="sort-queue" type="submit">Sort queue</button>
+        </form>
+        <p class="hint">Sorting changes playback order. Missing values go last.</p>
         <p class="hint">Click a title to play in your current tab. Your queue stays visible on YouTube video pages.</p>
         <ol id="queue-items" class="items"></ol>
         <form id="save-form" class="save-form"><label for="playlist-name">Save queue as a playlist</label><div class="toolbar"><input id="playlist-name" placeholder="Playlist name" maxlength="100" required><button class="primary" type="submit">Save</button></div></form>
