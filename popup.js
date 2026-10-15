@@ -4,16 +4,63 @@
     let selectedPlaylistId = null;
     let refreshVersion = 0;
     let pendingActions = 0;
+    let diagnosticBusy = false;
+    let lastError = null;
 
     async function request(type, payload) {
-        const response = await chrome.runtime.sendMessage({ type, payload });
-        if (!response?.success) throw new Error(response?.error || "Unable to complete this action");
-        return response.data;
+        try {
+            const response = await chrome.runtime.sendMessage({ type, payload });
+            if (!response?.success) throw new Error(response?.error || "Unable to complete this action");
+            if (!["GET_POPUP_STATE", "CREATE_DIAGNOSTIC_REPORT"].includes(type)) QueueDiagnostics.record(type, { success: true });
+            return response.data;
+        } catch (error) {
+            QueueDiagnostics.record(type, { success: false, error: error.message });
+            throw error;
+        }
     }
 
     function showStatus(message, isError = false) {
         elements.status.textContent = message;
         elements.status.dataset.error = String(isError);
+        if (isError) lastError = message;
+    }
+
+    async function exportDiagnostics() {
+        if (diagnosticBusy) return;
+        const popupState = QueueDiagnostics.scrub({ lastError, status: elements.status.textContent,
+            pendingActions, queueCount: state.queue.length, playlistCount: state.playlists.length,
+            selectedView: elements["queue-panel"].hidden ? "playlists" : "queue", events: QueueDiagnostics.getEvents() });
+        diagnosticBusy = true;
+        elements["export-diagnostics"].disabled = true;
+        showStatus("Creating debug report…");
+        let objectURL;
+        try {
+            let report;
+            try { report = await request("CREATE_DIAGNOSTIC_REPORT"); }
+            catch (error) {
+                // A broken worker is itself worth reporting. Preserve popup errors
+                // even when no page snapshot or background state can be collected.
+                report = { schemaVersion: 1, capturedAt: new Date().toISOString(),
+                    errors: [{ stage: "background", error: QueueDiagnostics.scrub(error.message) }] };
+            }
+            report.popup = popupState;
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+            objectURL = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = objectURL;
+            link.download = `youtube-queue-debug-${report.capturedAt.replace(/[:.]/g, "-")}.json`;
+            document.body.appendChild(link);
+            try { link.click(); } finally { link.remove(); }
+            // Let Chrome start reading the blob before releasing it.
+            setTimeout(() => URL.revokeObjectURL(objectURL), 30000);
+            showStatus(report.errors?.length ? "Partial debug report downloaded. Review it before sharing." : "Debug report downloaded. Review it before sharing.");
+        } catch (error) {
+            if (objectURL) URL.revokeObjectURL(objectURL);
+            showStatus(`Could not download debug report: ${error.message}`, true);
+        } finally {
+            diagnosticBusy = false;
+            elements["export-diagnostics"].disabled = false;
+        }
     }
 
     async function performAction(operation, successMessage) {
@@ -154,6 +201,7 @@
     }
 
     elements["queue-view"].addEventListener("click", () => showView("queue"));
+    elements["export-diagnostics"].addEventListener("click", exportDiagnostics);
     elements["playlists-view"].addEventListener("click", () => showView("playlists"));
     elements["add-current"].addEventListener("click", () => performAction(() => request("ADD_CURRENT"),
         (added) => added ? "Current tab added" : "This tab is already in your queue"));

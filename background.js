@@ -1,3 +1,5 @@
+importScripts("services/diagnostics.js");
+
 // Extension messages and persisted storage keys.
 const STORAGE_KEYS = {
     QUEUE: "yt_queue_list",
@@ -24,8 +26,28 @@ const MESSAGE_TYPES = {
     DELETE_PLAYLIST: "DELETE_PLAYLIST",
     LOAD_PLAYLIST: "LOAD_PLAYLIST",
     ADD_CURRENT_TO_PLAYLIST: "ADD_CURRENT_TO_PLAYLIST",
+    CREATE_DIAGNOSTIC_REPORT: "CREATE_DIAGNOSTIC_REPORT",
 };
 const ADD_TO_QUEUE_MENU_ID = "yt-queue-add";
+
+// Session-only history survives service worker suspension, never browser restart.
+const DIAGNOSTIC_SESSION_KEY = "queue_diagnostic_events";
+let diagnosticHistory = [];
+let pendingDiagnosticWrite = (async () => {
+    try {
+        const stored = await chrome.storage.session?.get(DIAGNOSTIC_SESSION_KEY);
+        if (Array.isArray(stored?.[DIAGNOSTIC_SESSION_KEY])) diagnosticHistory = QueueDiagnostics.scrub(stored[DIAGNOSTIC_SESSION_KEY]).slice(-80);
+    } catch { /* Diagnostics must never prevent queue operations. */ }
+})();
+
+function recordBackgroundEvent(type, details) {
+    const event = QueueDiagnostics.scrub({ at: new Date().toISOString(), type, ...details });
+    pendingDiagnosticWrite = pendingDiagnosticWrite.then(async () => {
+        diagnosticHistory.push(event);
+        diagnosticHistory = diagnosticHistory.slice(-80);
+        try { await chrome.storage.session?.set({ [DIAGNOSTIC_SESSION_KEY]: diagnosticHistory }); } catch {}
+    });
+}
 
 // Serialize mutations so simultaneous requests do not overwrite each other.
 let pendingQueueMutation = Promise.resolve();
@@ -50,11 +72,12 @@ async function ensureContentScriptLoaded(tabId) {
             });
             await chrome.scripting.executeScript({
                 target: { tabId },
-                files: ["services/video-previews.js", "main.js"],
+                files: ["services/diagnostics.js", "services/video-previews.js", "main.js"],
             });
             await new Promise((resolve) => setTimeout(resolve, 100));
             return true;
-        } catch {
+        } catch (error) {
+            recordBackgroundEvent("content-injection-error", { error: error.message });
             return false;
         }
     }
@@ -118,8 +141,11 @@ async function refreshYouTubeTab(tabId) {
 
 async function publishQueueToYouTubeTabs() {
     const tabs = await chrome.tabs.query({ url: "*://*.youtube.com/watch*" });
-    await Promise.allSettled(tabs.filter((tab) => isYouTubeWatchPage(tab.url))
+    const results = await Promise.allSettled(tabs.filter((tab) => isYouTubeWatchPage(tab.url))
         .map((tab) => refreshYouTubeTab(tab.id)));
+    for (const result of results) {
+        if (result.status === "rejected") recordBackgroundEvent("queue-broadcast-error", { error: result.reason?.message });
+    }
 }
 
 // Only YouTube video links can enter the queue or saved playlists.
@@ -213,7 +239,8 @@ async function getTabQueueItem(tab) {
         try {
             const metadata = await sendMessageToYouTubeTab(tab.id, { type: MESSAGE_TYPES.EXTRACT_METADATA });
             if (metadata?.id === fallbackItem.id) return normalizeQueueItem(metadata);
-        } catch {
+        } catch (error) {
+            recordBackgroundEvent("metadata-fallback", { error: error.message, url: QueueDiagnostics.safeURL(tab.url) });
             // A loading or discarded tab still has a usable URL and title.
         }
     }
@@ -476,6 +503,59 @@ async function getPopupState() {
     };
 }
 
+async function createDiagnosticReport() {
+    const report = {
+        schemaVersion: 1,
+        capturedAt: new Date().toISOString(),
+        extension: { name: chrome.runtime.getManifest().name, version: chrome.runtime.getManifest().version },
+        environment: { userAgent: globalThis.navigator?.userAgent },
+        errors: [],
+        privacy: {
+            note: "Contains rendered YouTube page text, video titles/links, queue samples, and recent extension actions. Review before sharing. Nothing is uploaded automatically.",
+            removed: ["script/style contents", "account areas", "form contents", "comments and live chat", "event handlers and unapproved attributes", "URL parameters except v/list/index/t", "recognized emails and credential patterns"],
+            collection: "Reads only queue and playlist summaries plus diagnostic session history. Does not collect cookies, network requests, headers, or arbitrary storage. Page/popup events last for their page lifetime; worker events last for this browser session (or worker lifetime if session storage is unavailable).",
+        },
+    };
+    // Read only the relevant storage keys; exporting must not migrate or edit queues.
+    try {
+        let queue = (await chrome.storage.local.get(STORAGE_KEYS.QUEUE))[STORAGE_KEYS.QUEUE];
+        const queueStorage = queue === undefined ? "sync (legacy)" : "local";
+        if (queue === undefined) queue = (await chrome.storage.sync.get(STORAGE_KEYS.QUEUE))[STORAGE_KEYS.QUEUE];
+        const playlists = (await chrome.storage.local.get(STORAGE_KEYS.PLAYLISTS))[STORAGE_KEYS.PLAYLISTS];
+        report.state = QueueDiagnostics.scrub({ queueStorage, queueCount: Array.isArray(queue) ? queue.length : 0,
+            queueSample: Array.isArray(queue) ? queue.slice(0, 50).map(item => ({ id: item?.id, title: item?.title, source: item?.source,
+                addedAt: item?.addedAt, fieldNames: item && typeof item === "object" ? Object.keys(item) : [] })) : [],
+            playlistCount: Array.isArray(playlists) ? playlists.length : 0,
+            playlistSizes: Array.isArray(playlists) ? playlists.slice(0, 50).map(list => Array.isArray(list?.items) ? list.items.length : null) : [],
+            sampleLimit: 50 });
+    } catch (error) { report.errors.push({ stage: "queue-state", error: QueueDiagnostics.scrub(error.message) }); }
+    try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        report.activeTab = { isYouTube: isYouTubePage(tab?.url), discarded: Boolean(tab?.discarded), status: tab?.status };
+        if (report.activeTab.isYouTube) {
+            report.activeTab.url = QueueDiagnostics.safeURL(tab.url);
+            // Inject only the independent collector. This still works if main.js fails
+            // to load, its listener breaks, or all supported card selectors go stale.
+            await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["services/diagnostics.js"] });
+            const [capture] = await chrome.scripting.executeScript({ target: { tabId: tab.id },
+                func: () => globalThis.QueueDiagnostics.capture() });
+            if (!capture?.result) throw new Error("The page did not return a diagnostic snapshot");
+            report.youtube = capture.result;
+            // This is the same read-only extractor used for import. Retain failures
+            // alongside the DOM evidence instead of letting them abort the report.
+            try {
+                const [native] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: extractYouTubeQueue });
+                report.nativeQueue = QueueDiagnostics.scrub(native?.result ? { found: true, itemCount: native.result.items?.length,
+                    skipped: native.result.skipped, sample: native.result.items?.slice(0, 30) } : { found: false });
+            } catch (error) { report.errors.push({ stage: "native-queue", error: QueueDiagnostics.scrub(error.message) }); }
+        } else report.youtube = { unavailable: "Open the affected YouTube tab and export again to include its page structure." };
+    } catch (error) { report.errors.push({ stage: "page-capture", error: QueueDiagnostics.scrub(error.message) }); }
+    await pendingDiagnosticWrite;
+    report.events = [...diagnosticHistory, ...QueueDiagnostics.getEvents()]
+        .sort((left, right) => left.at.localeCompare(right.at)).slice(-80);
+    return report;
+}
+
 // Context menu registration and clicks.
 chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
@@ -492,8 +572,10 @@ chrome.contextMenus.onClicked.addListener(async (menuInfo, tab) => {
         const item = menuInfo.linkUrl
             ? normalizeQueueItem({ url: menuInfo.linkUrl })
             : await getTabQueueItem(tab);
-        await addVideoToQueue(item);
-    } catch {
+        const added = await addVideoToQueue(item);
+        recordBackgroundEvent("context-menu-add", { videoId: item.id, added });
+    } catch (error) {
+        recordBackgroundEvent("context-menu-error", { error: error.message });
         // The page may have closed or become unavailable after the menu click.
     }
 });
@@ -503,13 +585,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     async function respondWithResult(operation) {
         try {
             const result = await operation();
+            if (![MESSAGE_TYPES.GET_QUEUE, MESSAGE_TYPES.GET_POPUP_STATE, MESSAGE_TYPES.GET_PLAYLISTS, MESSAGE_TYPES.CREATE_DIAGNOSTIC_REPORT].includes(message.type)) {
+                recordBackgroundEvent(message.type, { success: true, result: typeof result === "boolean" ? result
+                    : message.type === MESSAGE_TYPES.IMPORT_YOUTUBE_QUEUE || message.type === MESSAGE_TYPES.QUEUE_ALL_TABS ? result : undefined });
+            }
             sendResponse({ success: true, data: result });
         } catch (error) {
+            recordBackgroundEvent(message.type, { success: false, error: error.message });
             sendResponse({ success: false, error: error.message });
         }
     }
 
     switch (message.type) {
+        case MESSAGE_TYPES.CREATE_DIAGNOSTIC_REPORT:
+            respondWithResult(createDiagnosticReport);
+            return true;
         case MESSAGE_TYPES.GET_POPUP_STATE:
             respondWithResult(getPopupState);
             return true;

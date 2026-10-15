@@ -67,6 +67,41 @@ from queue and playlist views; they remain on disk until those collections are
 explicitly edited. These saved playlists belong to this extension, not your
 YouTube account.
 
+## Debug reports
+
+After reproducing a bug, keep the affected YouTube tab active, open the extension
+popup, and choose **Download debug report** at the bottom. Share the downloaded
+`youtube-queue-debug-….json` file when reporting the problem. Reload the extension
+and refresh YouTube tabs once after installing this update so recent page actions
+can be recorded.
+
+The report includes extension/browser information, recent extension actions and
+errors, queue counts and a sample of up to 50 queued videos, selector counts,
+and sanitized page markup. Page capture works independently of the queue and
+preview code, including when YouTube changes card names or the content script
+fails. Video-link surroundings and watch metadata/native queue regions are
+captured separately so they remain available if the full page reaches its size
+limit. Capture limits and truncation are included in the file.
+
+The markup retains rendered views/date/duration text and relevant page meta tags
+for future debugging. This feature does not parse or save new video metadata in
+queue items, and does not add sorting or filtering.
+
+Reports are downloaded locally and never uploaded automatically. Review before
+sharing: rendered video titles, links, page text, and queue samples can reveal
+what you were watching. The collector omits account areas, forms, comments/live
+chat, scripts/styles, unsafe attributes and URL parameters other than
+`v`/`list`/`index`/`t`, and redacts recognized emails and credentials. It does not
+read cookies, network headers, or arbitrary storage. This is best-effort
+redaction, not a guarantee that all personal text is removed.
+
+Recent page events last until the tab reloads, popup events until the popup closes,
+and background events until the browser session ends (or until the worker stops
+if session storage is unavailable). Each history keeps at most 80 events.
+Outside YouTube, or if page access fails, the button still downloads the available
+extension diagnostics and explains what could not be captured. Other websites'
+URLs and page contents are excluded.
+
 ## Checks
 
 Run `node --test tests/*.test.cjs` for background, popup, and sidebar regression tests.

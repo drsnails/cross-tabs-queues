@@ -43,6 +43,7 @@
     let queueMaintenanceTimeoutId = null;
     let queueMaintenanceDelayMs = null;
     let queueRecoveryAttempts = 0;
+    const diagnostics = globalThis.QueueDiagnostics;
 
     const previewControls = createVideoPreviewControls({
         getQueueItems: () => queueItems,
@@ -51,6 +52,7 @@
 
     async function addPreviewVideoToQueue(videoMetadata) {
         try {
+            diagnostics?.record("preview-add", { videoId: videoMetadata.id });
             const response = await chrome.runtime.sendMessage({
                 type: MESSAGE_TYPES.ADD_TO_QUEUE,
                 payload: videoMetadata,
@@ -64,7 +66,8 @@
                 renderQueue(queueResponse.data || []);
             }
             showToast(response.data ? "Added to Queue" : "Already in Queue");
-        } catch {
+        } catch (error) {
+            diagnostics?.record("preview-add-error", { error: error.message });
             showToast("Error adding to queue");
         }
     }
@@ -120,6 +123,7 @@
     }
 
     function showToast(message) {
+        diagnostics?.record("toast", { message });
         let toastElement = document.getElementById("yt-queue-toast");
         if (!toastElement) {
             toastElement = document.createElement("div");
@@ -161,6 +165,7 @@
             event.preventDefault();
             event.stopPropagation();
             const videoMetadata = getCurrentVideoMetadata();
+            diagnostics?.record("watch-add", { videoId: videoMetadata?.id });
             if (!videoMetadata || !videoMetadata.id) {
                 showToast("Could not get video info");
                 return;
@@ -170,6 +175,7 @@
                 payload: videoMetadata,
             }, (response) => {
                 if (chrome.runtime.lastError || !response || !response.success) {
+                    diagnostics?.record("watch-add-error", { error: chrome.runtime.lastError?.message || response?.error || "No response" });
                     showToast("Error adding to queue");
                     return;
                 }
@@ -337,8 +343,9 @@
     }
 
     // Reading lastError prevents unchecked errors for messages without a UI response.
-    function consumeRuntimeError() {
-        void chrome.runtime.lastError;
+    function consumeRuntimeError(response) {
+        const error = chrome.runtime.lastError?.message || (response?.success === false ? response.error : null);
+        if (error) diagnostics?.record("queue-action-error", { error });
     }
 
     function renderQueue(updatedQueueItems) {
@@ -483,10 +490,14 @@
         const requestRevision = queueRevision;
         chrome.runtime.sendMessage({ type: MESSAGE_TYPES.GET_QUEUE }, (response) => {
             isQueueRequestPending = false;
-            if (chrome.runtime.lastError) return;
+            if (chrome.runtime.lastError) {
+                diagnostics?.record("queue-load-error", { error: chrome.runtime.lastError.message });
+                return;
+            }
             // Storage events take precedence over responses started before that change.
             if (requestRevision !== queueRevision) return;
             if (response && response.success) renderQueue(response.data || []);
+            else diagnostics?.record("queue-load-error", { error: response?.error || "No response" });
         });
     }
 
@@ -498,10 +509,13 @@
     }
 
     function handleVideoEnded() {
+        diagnostics?.record("video-ended", { videoId: getCurrentVideoId() });
         chrome.runtime.sendMessage({
             type: MESSAGE_TYPES.NEXT_VIDEO_REQUEST,
             payload: { currentVideoId: getCurrentVideoId() },
         }, (response) => {
+            const error = chrome.runtime.lastError?.message || (response?.success === false ? response.error : null);
+            if (error) diagnostics?.record("next-video-error", { error });
             if (!chrome.runtime.lastError && response && response.success && response.data) {
                 const nextVideo = response.data;
                 window.location.href = nextVideo.url;
@@ -583,6 +597,7 @@
     }
 
     function initializeYouTubePage() {
+        diagnostics?.record("page-initialize", { url: diagnostics.safeURL(location.href) });
         queueRecoveryAttempts = 0;
         previewControls.refreshButtons();
         ensureWatchPageUI();
@@ -647,5 +662,11 @@
             scheduleQueueMaintenance();
         }
     });
+    diagnostics?.setStateProvider(() => ({
+        hasLoadedQueue, isQueueRequestPending, queueRevision, queueCount: queueItems.length,
+        isQueueMinimized, queueRecoveryAttempts, queueMaintenanceDelayMs,
+        currentVideo: getCurrentVideoMetadata(), uiReady: isQueueUIReady(),
+        previews: previewControls.describe(),
+    }));
     initializeYouTubePage();
 })();

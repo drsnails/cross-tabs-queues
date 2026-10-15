@@ -101,6 +101,7 @@ function createYouTubePage({ page = 'watch' } = {}) {
         clearTimeout(id) { timers.delete(id); },
     };
     vm.createContext(context);
+    vm.runInContext(fs.readFileSync(`${__dirname}/../services/diagnostics.js`, 'utf8'), context);
     vm.runInContext(fs.readFileSync(`${__dirname}/../services/video-previews.js`, 'utf8'), context);
     vm.runInContext(fs.readFileSync(`${__dirname}/../main.js`, 'utf8'), context);
     return {

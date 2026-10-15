@@ -206,5 +206,16 @@ function createVideoPreviewControls({ getQueueItems, addVideo }) {
         updateFloatingVisibility();
         positionFloatingButton();
     });
-    return { refreshButtons };
+    return { refreshButtons,
+        describe() {
+            const cards = [...document.querySelectorAll(CARD_SELECTOR)];
+            return { selectorVersion: "2026-10-15.1", cardSelector: CARD_SELECTOR, cardCount: cards.length,
+                sampleLimit: 30, cards: cards.slice(0, 30).map(card => {
+                    try { return { tag: card.localName, metadata: readPreviewMetadata(card),
+                        hasThumbnailLink: Boolean(card.querySelector("a.ytLockupViewModelContentImage")),
+                        hasTitleLink: Boolean(card.querySelector("a.ytLockupMetadataViewModelTitle")) }; }
+                    catch (error) { return { error: error.message }; }
+                }) };
+        },
+    };
 }

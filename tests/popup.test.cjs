@@ -6,6 +6,8 @@ const { createBackground } = require('./helpers/background.cjs');
 
 // A minimal DOM lets these tests exercise the popup's actual event handlers.
 function createPopup(background) {
+    const downloads = [];
+    const blobs = [];
     class Element {
         constructor(tag = 'div') {
             this.tag = tag;
@@ -22,7 +24,11 @@ function createPopup(background) {
         replaceChildren(...children) { this.children = children; }
         querySelector() { return this.submitButton ||= new Element('button'); }
         querySelectorAll() { return []; }
-        click() { if (!this.disabled) this.listeners.click?.(); }
+        click() {
+            if (this.tag === 'a') downloads.push({ href: this.href, filename: this.download });
+            if (!this.disabled) this.listeners.click?.();
+        }
+        remove() {}
         submit() { this.listeners.submit?.({ preventDefault() {} }); }
     }
     const html = fs.readFileSync(`${__dirname}/../popup.html`, 'utf8');
@@ -32,11 +38,17 @@ function createPopup(background) {
         return [match[1], element];
     }));
     const context = {
-        document: { querySelectorAll: () => Object.values(elements), createElement: tag => new Element(tag) },
+        document: { body: new Element(), querySelectorAll: () => Object.values(elements), createElement: tag => new Element(tag) },
         chrome: background.chrome,
+        URL: Object.assign(class extends URL {}, { createObjectURL(blob) { blobs.push(blob); return 'blob:report'; }, revokeObjectURL() {} }),
+        Blob, setTimeout: callback => callback(),
         confirm: () => true,
     };
-    vm.runInNewContext(fs.readFileSync(`${__dirname}/../popup.js`, 'utf8'), context);
+    vm.createContext(context);
+    vm.runInContext(fs.readFileSync(`${__dirname}/../services/diagnostics.js`, 'utf8'), context);
+    vm.runInContext(fs.readFileSync(`${__dirname}/../popup.js`, 'utf8'), context);
+    elements.downloads = downloads;
+    elements.blobs = blobs;
     return elements;
 }
 
@@ -164,4 +176,42 @@ test('popup disables queue import outside YouTube and shows an error for missing
     assert.match(ui.status.textContent, /No built-in YouTube queue found/);
     assert.equal(ui['import-youtube-queue'].disabled, false);
     assert.equal(ui['queue-count'].textContent, '0 items');
+});
+
+test('popup downloads JSON with the preceding error and does not require a YouTube tab', async () => {
+    const background = createBackground([], { tabs: [{ id: 1, url: 'chrome://extensions' }] });
+    const ui = createPopup(background);
+    await flush();
+    ui['playlist-name'].value = ' ';
+    ui['save-form'].submit();
+    await flush();
+    ui['export-diagnostics'].click();
+    assert.equal(ui['export-diagnostics'].disabled, true);
+    await flush();
+    assert.equal(ui.downloads.length, 1);
+    assert.match(ui.downloads[0].filename, /^youtube-queue-debug-.*\.json$/);
+    const report = JSON.parse(await ui.blobs[0].text());
+    assert.match(report.popup.lastError, /Enter a playlist name/);
+    assert.equal(report.popup.events.at(-1).type, 'SAVE_PLAYLIST');
+    assert.equal(report.state.queueCount, 0);
+    assert.equal(ui['export-diagnostics'].disabled, false);
+    assert.match(ui.status.textContent, /Review it before sharing/);
+    assert.equal(ui.status.dataset.error, 'false');
+});
+
+test('popup can download a partial report when the background worker is unavailable', async () => {
+    const ui = createPopup({ chrome: {
+        runtime: { async sendMessage() { throw new Error('Worker unavailable reader@example.com'); } },
+        storage: { onChanged: { addListener() {} } },
+    } });
+    await flush();
+    assert.equal(ui.status.dataset.error, 'true');
+    ui['export-diagnostics'].click();
+    await flush();
+    const report = JSON.parse(await ui.blobs[0].text());
+    assert.equal(report.errors[0].stage, 'background');
+    assert.match(report.popup.lastError, /Worker unavailable/);
+    assert.doesNotMatch(JSON.stringify(report), /reader@example.com/);
+    assert.match(ui.status.textContent, /Partial debug report downloaded/);
+    assert.equal(ui['export-diagnostics'].disabled, false);
 });

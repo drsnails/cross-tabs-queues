@@ -13,6 +13,11 @@ function createBackground(queueItems, options = {}) {
     let onTabUpdated;
     const tabs = options.tabs || [];
     const storageListeners = [];
+    const sessionValues = options.sessionValues || {};
+    const pageContext = vm.createContext({ URL,
+        location: { href: tabs[0]?.url },
+        document: options.diagnosticPage || options.youtubePage || { querySelectorAll: () => [], getElementById: () => null },
+    });
     const context = {
         URL,
         crypto: require('node:crypto').webcrypto,
@@ -22,16 +27,21 @@ function createBackground(queueItems, options = {}) {
                 async executeScript(optionsForScript) {
                     scriptCalls.push(optionsForScript);
                     if (options.scriptError) throw new Error(options.scriptError);
-                    const result = vm.runInNewContext(`(${optionsForScript.func.toString()})()`, {
-                        URL,
-                        location: { href: tabs.find(tab => tab.id === optionsForScript.target.tabId)?.url },
-                        document: options.youtubePage || { querySelectorAll: () => [], getElementById: () => null },
-                    });
+                    if (optionsForScript.files) {
+                        for (const file of optionsForScript.files) vm.runInContext(fs.readFileSync(`${__dirname}/../../${file}`, 'utf8'), pageContext);
+                        return [{}];
+                    }
+                    if (options.nativeScriptError && optionsForScript.world === 'MAIN') throw new Error(options.nativeScriptError);
+                    const result = vm.runInContext(`(${optionsForScript.func.toString()})()`, pageContext);
                     return [{ result: JSON.parse(JSON.stringify(result)) }];
                 },
             },
             storage: {
                 onChanged: { addListener(listener) { storageListeners.push(listener); } },
+                session: {
+                    async get(key) { return { [key]: structuredClone(sessionValues[key]) }; },
+                    async set(values) { Object.assign(sessionValues, structuredClone(values)); },
+                },
                 local: {
                     async get(key) { return { [key]: structuredClone(localValues[key]) }; },
                     async set(values) {
@@ -60,13 +70,16 @@ function createBackground(queueItems, options = {}) {
                 async create(values) { openedTabs.push(values); },
             },
             runtime: {
+                getManifest: () => ({ name: 'YouTube Custom Queue', version: '1.0.0' }),
                 onInstalled: { addListener() {} },
                 onMessage: { addListener(listener) { handleMessage = listener; } },
             },
             contextMenus: { onClicked: { addListener() {} } },
         },
     };
-    vm.runInNewContext(fs.readFileSync(`${__dirname}/../../background.js`, 'utf8'), context);
+    vm.createContext(context);
+    context.importScripts = file => vm.runInContext(fs.readFileSync(`${__dirname}/../../${file}`, 'utf8'), context);
+    vm.runInContext(fs.readFileSync(`${__dirname}/../../background.js`, 'utf8'), context);
     return {
         chrome: {
             storage: context.chrome.storage,

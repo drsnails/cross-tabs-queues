@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>YouTube Custom Queue</title>
     <link rel="stylesheet" href="styles/popup.css">
+    <script src="services/diagnostics.js" defer></script>
     <script src="popup.js" defer></script>
 </head>
 <body>
@@ -32,5 +33,9 @@
             <ol id="playlist-items" class="items"></ol>
         </div>
     </section>
+    <footer class="diagnostics">
+        <button id="export-diagnostics" type="button">Download debug report</button>
+        <p class="hint">Includes this YouTube page’s text, video links, queue summary, and recent extension actions. Account areas, forms, comments, and recognized credentials are removed. Review the file before sharing.</p>
+    </footer>
 </body>
 </html>
